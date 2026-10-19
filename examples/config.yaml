@@ -1,0 +1,63 @@
+# All bounds use original PNG pixels: [left, top, right, bottom), not x/y/width/height.
+# Background brightness is weighted gamma-encoded sRGB / 255.
+global:
+  ignored_regions: []
+  allowed_colors: []
+
+pictures:
+  enabled: true
+  high_confidence: 0.80
+  min_boundary_support: 0.65
+  min_texture_coverage: 0.30
+  slic_passes: 4
+
+background:
+  absolute_bright_threshold: 0.80
+  relative_bright_offset: 0.30
+  local_thresholds: [0.25, 0.40, 0.55, 0.70]
+  min_area_ratio: 0.002
+  min_bright_pixel_ratio: 0.70
+  min_surrounding_delta: 0.25
+  min_rectangularity: 0.65
+
+text:
+  # Default: dark strokes on dark local backgrounds, light strokes on light backgrounds.
+  # Use all_low_contrast to include gray-on-white and other readability checks.
+  detection_mode: theme_mismatch
+  dark_background_max: 0.30
+  light_background_min: 0.75
+  critical_contrast: 2.0
+  high_risk_contrast: 3.0
+  warning_contrast: 4.5
+  min_line_components: 3
+  morphology_scales: [small, normal, large]
+  candidate_validation:
+    same_color_tolerance: 0.012
+    surrounding_match_min: 0.60
+    max_width_cv: 0.85
+    picture_min_pairs: 6
+    picture_max_width_cv: 0.55
+    retry_angle_degrees: 12
+
+scoring:
+  high_confidence: 0.80
+  fail_severities: [critical, high]
+
+runtime:
+  concurrency: 2
+  save_debug_masks: false
+  html_report: true
+
+pages:
+  music_home:
+    ignored_regions:
+      - [40, 500, 520, 1050]
+    allowed_colors:
+      - "#FF9B6A"
+  # A page may also override pictures/background/text/filter/scoring/runtime thresholds.
+  permitted_poster:
+    ignore_page: true
+  mixed_foreground:
+    # Demonstrate that a healthy dark word cannot hide a weak gray word.
+    text:
+      detection_mode: all_low_contrast

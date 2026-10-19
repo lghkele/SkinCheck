@@ -1,0 +1,137 @@
+[
+  {
+    "pageId": "normal_dark",
+    "caseId": "synthetic_normal_dark",
+    "theme": "dark",
+    "width": 1080,
+    "height": 2400,
+    "imagePath": "normal_dark.png",
+    "device": "synthetic_fixture"
+  },
+  {
+    "pageId": "white_card",
+    "caseId": "synthetic_white_card",
+    "theme": "dark",
+    "width": 1080,
+    "height": 2400,
+    "imagePath": "white_card.png",
+    "device": "synthetic_fixture"
+  },
+  {
+    "pageId": "dark_text",
+    "caseId": "synthetic_dark_text",
+    "theme": "dark",
+    "width": 1080,
+    "height": 2400,
+    "imagePath": "dark_text.png",
+    "device": "synthetic_fixture"
+  },
+  {
+    "pageId": "light_text",
+    "caseId": "synthetic_light_text",
+    "theme": "dark",
+    "width": 1080,
+    "height": 2400,
+    "imagePath": "light_text.png",
+    "device": "synthetic_fixture"
+  },
+  {
+    "pageId": "local_gray_card",
+    "caseId": "synthetic_local_gray_card",
+    "theme": "dark",
+    "width": 1080,
+    "height": 2400,
+    "imagePath": "local_gray_card.png",
+    "device": "synthetic_fixture"
+  },
+  {
+    "pageId": "one_pixel_ring",
+    "caseId": "synthetic_one_pixel_ring",
+    "theme": "dark",
+    "width": 1080,
+    "height": 2400,
+    "imagePath": "one_pixel_ring.png",
+    "device": "synthetic_fixture"
+  },
+  {
+    "pageId": "three_sided_edge",
+    "caseId": "synthetic_three_sided_edge",
+    "theme": "dark",
+    "width": 1080,
+    "height": 2400,
+    "imagePath": "three_sided_edge.png",
+    "device": "synthetic_fixture"
+  },
+  {
+    "pageId": "short_text",
+    "caseId": "synthetic_short_text",
+    "theme": "dark",
+    "width": 1080,
+    "height": 2400,
+    "imagePath": "short_text.png",
+    "device": "synthetic_fixture"
+  },
+  {
+    "pageId": "whole_light_page",
+    "caseId": "synthetic_whole_light_page",
+    "theme": "dark",
+    "width": 1080,
+    "height": 2400,
+    "imagePath": "whole_light_page.png",
+    "device": "synthetic_fixture"
+  },
+  {
+    "pageId": "mixed_foreground",
+    "caseId": "synthetic_mixed_foreground",
+    "theme": "dark",
+    "width": 1080,
+    "height": 2400,
+    "imagePath": "mixed_foreground.png",
+    "device": "synthetic_fixture"
+  },
+  {
+    "pageId": "split_background",
+    "caseId": "synthetic_split_background",
+    "theme": "dark",
+    "width": 1080,
+    "height": 2400,
+    "imagePath": "split_background.png",
+    "device": "synthetic_fixture"
+  },
+  {
+    "pageId": "complex_image",
+    "caseId": "synthetic_complex_image",
+    "theme": "dark",
+    "width": 1080,
+    "height": 2400,
+    "imagePath": "complex_image.png",
+    "device": "synthetic_fixture"
+  },
+  {
+    "pageId": "cover_bright_sky",
+    "caseId": "synthetic_cover_bright_sky",
+    "theme": "dark",
+    "width": 1080,
+    "height": 2400,
+    "imagePath": "cover_bright_sky.png",
+    "device": "synthetic_fixture"
+  },
+  {
+    "pageId": "covers_and_white_card",
+    "caseId": "synthetic_covers_and_white_card",
+    "theme": "dark",
+    "width": 1080,
+    "height": 2400,
+    "imagePath": "covers_and_white_card.png",
+    "device": "synthetic_fixture"
+  },
+  {
+    "pageId": "cover_and_weak_text",
+    "caseId": "synthetic_cover_and_weak_text",
+    "theme": "dark",
+    "width": 1080,
+    "height": 2400,
+    "imagePath": "cover_and_weak_text.png",
+    "device": "synthetic_fixture"
+  }
+]

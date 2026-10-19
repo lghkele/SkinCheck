@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "skinscan"
+version = "0.4.0"
+description = "CPU-only, full-resolution Android dark theme screenshot checks"
+requires-python = ">=3.9"
+dependencies = ["numpy>=1.24,<3", "opencv-contrib-python-headless>=4.8,<5", "PyYAML>=6,<7"]
+
+[project.optional-dependencies]
+test = ["pytest>=7,<9"]
+
+[project.scripts]
+skinscan = "skinscan.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["skinscan*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
