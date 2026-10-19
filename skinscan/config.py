@@ -1,4 +1,9 @@
-"""Central thresholds. Background thresholds use gamma-encoded weighted RGB / 255."""
+"""配置的唯一默认值来源：默认值 → 全局 YAML → 页面覆盖 → 完整校验。
+
+背景与极性门控使用编码亮度 Yg；contrast 系列是线性 sRGB 的 WCAG 比值。
+像素核／采样距离的换算以各调用处为准，width_ratio 通常相对截图宽度。
+参数是工程初值，不是论文统一推荐值；新增键需要同时审查校验与页面覆盖行为。
+"""
 import copy
 from pathlib import Path
 
@@ -8,6 +13,7 @@ import yaml
 DEFAULTS = {
     "global": {"ignored_regions": [], "allowed_colors": [], "ignore_page": False},
     "pictures": {
+        # 先验证图片范围，再做 ROI 分割；证据不足只保留候选，不自动排除 UI。
         "enabled": True,
         "window_width_ratio": 0.018,
         "palette_bin_size": 8,
@@ -39,6 +45,7 @@ DEFAULTS = {
         "max_candidates": 80,
     },
     "background": {
+        # 绝对亮度、页面中位数偏移和多档局部阈值独立生成候选，最后统一去重。
         "absolute_bright_threshold": 0.80,
         "relative_bright_offset": 0.30,
         "local_thresholds": [0.25, 0.40, 0.55, 0.70],
@@ -71,6 +78,7 @@ DEFAULTS = {
         "critical_contrast": 2.0,
         "high_risk_contrast": 3.0,
         "warning_contrast": 4.5,
+        # 这里的组件数用于行支持／未知项分流，不能作为已测单字的最低字数。
         "min_line_components": 3,
         "morphology_scales": ["small", "normal", "large"],
         "scale_width_ratios": {"small": 0.015, "normal": 0.028, "large": 0.05},
@@ -78,6 +86,7 @@ DEFAULTS = {
         "min_foreground_delta": 0.004,
         "noise_window_ratio": 0.015,
         "weak_response_fraction": 0.50,
+        # 旧整行估色路径已删除；此键及下方部分旧参数仅保留以兼容历史配置。
         "fallback_core_quantile": 0.70,
         "noise_multiplier": 2.5,
         "max_response_noise": 14.0,
@@ -92,6 +101,8 @@ DEFAULTS = {
         "line_max_gap_heights": 1.5,
         "max_line_aspect": 60.0,
         "min_line_aspect": 2.0,
+        # background_padding/exclusion、max_internal_external_delta、background_delta_fraction、
+        # min_core_pixels、core_distance 也属于旧整行路径；max_background_std 仍用于笔画采样。
         "background_padding_ratio": 0.008,
         "background_exclusion_ratio": 0.002,
         "max_background_std": 0.035,
@@ -101,6 +112,7 @@ DEFAULTS = {
         "min_core_pixels": 4,
         "core_distance": 1.5,
         "candidate_validation": {
+            # 图片内要求更强证据，但不把像素从文字 valid 掩码中删除。
             "same_color_tolerance": 0.012,
             "surrounding_match_min": 0.60,
             "max_width_cv": 0.85,
@@ -109,6 +121,7 @@ DEFAULTS = {
             "retry_angle_degrees": 12.0,
         },
         "stroke_sampling": {
+            # 核心、双侧背景稳定性和极性都通过后，才算一个可用配对。
             "max_samples_per_component": 80,
             "min_pairs": 3,
             "max_width_height_ratio": 0.50,
@@ -127,6 +140,7 @@ DEFAULTS = {
         "max_candidates": 3000,
     },
     "filter": {
+        # 纹理是辅助评分，允许色只降背景风险；都不能证明内容在语义上正常。
         "texture_edge_threshold": 0.08,
         "texture_edge_density": 0.22,
         "texture_color_std": 0.20,
@@ -143,6 +157,7 @@ DEFAULTS = {
 
 
 def _merge(base, override, path=""):
+    """原地递归覆盖已知配置键；pages 延后按完整默认结构校验，列表整体替换。"""
     if not isinstance(override, dict):
         raise ValueError(f"{path or 'config'} must be a mapping")
     for key, value in override.items():
@@ -160,6 +175,7 @@ def _merge(base, override, path=""):
 
 
 def validate(config):
+    """先检查类型及单值范围，再检查跨字段关系；返回原对象，不修正错误值。"""
     def check(reference, actual, path=""):
         for key, default in reference.items():
             value = actual[key]
@@ -173,6 +189,7 @@ def validate(config):
                     raise ValueError(f"{name} must be boolean")
             elif isinstance(default, (int, float)):
                 if isinstance(value, bool) or not isinstance(value, (int, float)):
+                    # Python 的 bool 也是 int，需显式拒绝，避免 true 被当作像素数或比例。
                     raise ValueError(f"{name} must be numeric")
                 if not 0 <= value < float("inf"):
                     raise ValueError(f"{name} must be finite and nonnegative")
@@ -260,6 +277,7 @@ def validate(config):
 
 
 def load_config(path=None):
+    """深拷贝默认值加载 YAML；提前校验全部页面，避免并发运行到一半才发现配置错误。"""
     config = copy.deepcopy(DEFAULTS)
     if path:
         try:
@@ -277,6 +295,7 @@ def load_config(path=None):
 
 
 def page_config(config, page_id):
+    """返回独立的页面有效配置；坐标／允许色追加，阈值覆盖，不修改共享全局配置。"""
     effective = copy.deepcopy(config)
     override = copy.deepcopy(effective.pop("pages").get(page_id, {}))
     if not isinstance(override, dict):

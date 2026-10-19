@@ -2,6 +2,46 @@
 
 Android 暗夜模式原始截图检测工具。使用 Python、OpenCV、NumPy，在 CPU 上独立运行背景异常和文本可读性检测链路。无需 OCR、神经网络、GPU、控件树或日间参考图；不缩放截图，不生成缩略图。
 
+## 项目结构
+
+```text
+SkinScan/
+├── skinscan/                         检测程序
+│   ├── __init__.py                   包信息与版本号
+│   ├── __main__.py                   python -m skinscan 入口
+│   ├── cli.py                        命令行、输入发现、批处理、严格退出码与审核命令
+│   ├── engine.py                     单图分析调度、异常隔离、问题合并、白名单与状态判定
+│   ├── image.py                      原图读取、亮度／对比度、梯度与基础像素工具
+│   ├── pictures.py                   图片候选定位、ROI SLICO 分割及内部／边界掩码
+│   ├── background.py                 背景亮块、局部反差、细边与整页主题检测
+│   ├── text.py                       文字候选生成、水平分组、局部支持与未知项分流
+│   ├── textshape.py                  字缝／容器结构排除、近似中轴宽度与行结构验证
+│   ├── strokes.py                    相反边缘笔画配对、方向重测、核心与双侧背景取样
+│   ├── config.py                     默认阈值、配置加载／校验及页面覆盖
+│   ├── models.py                     检测结果、问题和坐标关系等数据结构
+│   └── report.py                     原图保存、标注／定位图、JSON 和 HTML 报告
+├── docs/                             设计与实现文档
+│   ├── android-dark-mode-screenshot-detection-plan.md  总体方案与算法来源
+│   ├── text-algorithm.md              文字算法、测量证据与能力边界
+│   ├── picture-algorithm.md           图片定位与背景／文字链路的集成
+│   ├── implementation.md             实现映射、版本验收与性能记录
+│   └── problem-solving-notes.md       遇到的问题、解决思路及剩余限制
+├── examples/                         示例配置与合成样本
+│   ├── config.yaml                   常用配置和页面覆盖示例
+│   ├── all-low-contrast.yaml          全量低对比度检测配置
+│   ├── generate_samples.py           原分辨率合成样本生成器
+│   └── screenshots/                  生成的 PNG、元数据与批量 manifest
+├── tests/                            背景、文字、笔画、图片、候选验证和 CLI 回归测试
+├── reports/                          运行生成的历史报告，按运行 ID 分目录
+├── pyproject.toml                    包版本、依赖、命令入口与测试配置
+├── .gitignore                        本地环境、缓存、构建产物和报告的忽略规则
+└── README.md                         项目入口与使用说明
+```
+
+主要调用顺序为：`cli.py` 收集输入与配置，`engine.py` 调用 `image.py` 加载原图并执行 `pictures.py` 图片定位，再并行运行 `background.py` 和 `text.py`。文字链路通过 `textshape.py` 验证候选、通过 `strokes.py` 测量笔画；引擎合并问题并判定状态，最后由 `report.py` 保存工件。
+
+`examples/screenshots/` 由样本生成器创建，`reports/` 由扫描命令创建；本地 `.venv/`、`build/`、`dist/` 和 `*.egg-info/` 分别属于环境或构建产物，未列入核心源码结构。
+
 ## 安装与运行
 
 ```bash

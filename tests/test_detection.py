@@ -1,3 +1,7 @@
+"""引擎级行为回归：亮区／细边、局部文字、忽略／允许配置与模块故障隔离。
+
+涉及嵌套问题时使用 walk_issues；只检查 result.issues 会漏掉背景里的文字子项。
+"""
 import copy
 import json
 
@@ -159,6 +163,7 @@ def test_failed_chain_does_not_skip_other(screenshot, monkeypatch, broken, remai
 
 
 def test_noise_image_does_not_trigger_high_confidence_failure(screenshot):
+    # 只要求噪声不形成高置信度阻断，不要求规则对所有纹理都绝对零候选。
     path, image = screenshot()
     random = np.random.default_rng(42)
     image[150:600, 50:550] = random.integers(0, 256, (450, 500, 3), dtype=np.uint8)
@@ -168,6 +173,7 @@ def test_noise_image_does_not_trigger_high_confidence_failure(screenshot):
 
 
 def test_gradient_text_is_uncertain(screenshot):
+    # 渐变使同一行背景不一致；局部能测到的部分仍保留复核，不以整行平均色裁决。
     path, image = screenshot()
     for x in range(600):
         image[:, x] = 25 + x // 4

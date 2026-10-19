@@ -1,4 +1,7 @@
-"""Pixel/geometry checks, not character recognition (project heuristics)."""
+"""文字候选的像素／几何验证；所有组合门限为工程规则，不是字形识别器。
+
+距离变换局部极值只近似中轴宽度，不是完整 SWT 或精确骨架；不能证明候选是字。
+"""
 import cv2
 import numpy as np
 
@@ -6,6 +9,11 @@ from .strokes import in_detection_scope
 
 
 def component_shape(frame, labels, component, response, opposite, polarity, config):
+    """返回 (拒绝原因或 None, 结构证据)，所有局部数组仍直接取自原像素。
+
+    response/opposite 是同尺寸、相反极性的形态学响应。scopeEligible 只决定
+    采样失败后是否保留未知项，不能当作实际前景／背景对比度测量。
+    """
     x, y, w, h, label = component
     c = config['candidate_validation']
     pad = max(4, int(round(h * 0.5)))
@@ -28,8 +36,8 @@ def component_shape(frame, labels, component, response, opposite, polarity, conf
     matching = (np.max(np.abs(rgb.astype(np.float32)-color), axis=2) <= tolerance) & valid
     outside = valid & ~cv2.dilate(local.astype(np.uint8), np.ones((3, 3), np.uint8)).astype(bool)
     match_fraction = float(matching[outside].mean()) if outside.any() else 0
-    # Flood connectivity alone is insufficient: require widespread matching color
-    # plus opposite-polarity strokes around the candidate (open/closed glyph gaps).
+    # 周围需广泛同色，再联合“核心同色块连到 ROI 多侧”或“相反极性包围”之一。
+    # 不能只凭一个开口或外连就删掉真实字；这里用于识别字缝／容器底色结构。
     ring = cv2.dilate(local.astype(np.uint8), np.ones((5, 5), np.uint8)).astype(bool) & ~local & valid
     opposite_support = float((opposite[top:bottom, left:right][ring] >= config['min_response']).mean()) if ring.any() else 0
     _, connected = cv2.connectedComponents(matching.astype(np.uint8), 8)
@@ -53,6 +61,7 @@ def component_shape(frame, labels, component, response, opposite, polarity, conf
 
 
 def line_structure(group, config):
+    """较强横向组证据，用于重测／未知分流；不是已测单字和数字的准入条件。"""
     if len(group) < config['min_line_components']:
         return False
     heights = np.array([v[3] for v in group], float)

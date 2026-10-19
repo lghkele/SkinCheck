@@ -1,3 +1,7 @@
+"""CLI 工程契约：批次不中断、输入失败隔离、原图保真、历史工件及严格退出码。
+
+从 main 进入而非调用内部 helper，覆盖实际参数解析、调度、序列化和审核边界。
+"""
 import json
 from pathlib import Path
 
@@ -32,6 +36,7 @@ def test_batch_report_full_resolution_original_and_history(tmp_path, screenshot)
 
 
 def test_strict_exit_codes(tmp_path, screenshot):
+    # 0/1/2 分别覆盖正常、确定风险、无法可靠判断；缺失输入同样属于执行错误 2。
     good, _ = screenshot("normal", text="Readable")
     bad, _ = screenshot("bad", card=(50, 180, 550, 430, 245))
     uncertain, _ = screenshot("short", background=37, text="7", foreground=23)
@@ -114,6 +119,7 @@ def test_non_screenshot_inputs_rejected(tmp_path, kind):
 
 
 def test_medium_contrast_does_not_block_strict(tmp_path, screenshot):
+    # 中风险提示可保留人工复核，但按当前 CI 策略不阻断；不要把它改成“有告警即失败”。
     path, _ = screenshot(background=30, text="Warning text", foreground=120)
     config = tmp_path / "all_contrast.yaml"
     config.write_text("text:\n  detection_mode: all_low_contrast\n")

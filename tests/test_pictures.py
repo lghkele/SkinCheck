@@ -1,4 +1,7 @@
-"""Behavioral regressions: picture contents versus surrounding UI, at native size."""
+"""图片过滤的正负对照：图片内部应排除，旁侧白卡／弱字／真实细边必须保留。
+
+artwork 是固定种子的纹理夹具，不是真实封面分类样本，不能据此计算生产召回率。
+"""
 import cv2
 import numpy as np
 import pytest
@@ -11,6 +14,7 @@ from skinscan.pictures import locate_pictures
 
 
 def artwork(width=150, height=240, sky=False, grayscale=False):
+    """生成独立 RGB 内容，sky／grayscale 分别覆盖平坦亮区和无彩色细节的场景。"""
     rng = np.random.default_rng(271)
     pixels = rng.integers(35, 255, (height, width, 3), dtype=np.uint8)
     pixels = cv2.GaussianBlur(pixels, (3, 3), 0.6)
@@ -188,6 +192,7 @@ def test_picture_dominated_bright_page_uses_remaining_ui_statistics(tmp_path):
 
 
 def test_insufficient_remaining_ui_is_not_a_pass(tmp_path, monkeypatch):
+    # 在此隔离图片定位器，仅验证背景链路对“没有足够可评估 UI”的完整性处理。
     from skinscan.pictures import empty_pictures
     def nearly_full_picture(frame, config, debug):
         result = empty_pictures(frame)

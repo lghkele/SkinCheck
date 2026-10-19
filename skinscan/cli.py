@@ -1,3 +1,8 @@
+"""命令行与批处理边界：解析输入、截图级并发、工件保存及退出码策略。
+
+单张算法入口在 engine.analyze_image。report-only 允许算法告警，执行错误仍
+返回 2；strict 另外把确定风险映射为 1，把不确定分析映射为 2。
+"""
 import argparse
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
@@ -27,6 +32,11 @@ def _read_object(path):
 
 
 def _inputs(args):
+    """返回 (绝对图片路径, 显式元数据或 None) 列表；None 表示稍后读取 sidecar。
+
+    manifest 路径相对清单文件解析；其元数据优先于同名 JSON，不与其隐式合并。
+    清单结构错误立即终止，单张文件／sidecar 错误则留给 process 隔离处理。
+    """
     jobs = []
     if args.manifest:
         manifest_path = Path(args.manifest).resolve()
@@ -59,6 +69,7 @@ def _inputs(args):
 
 
 def _run_scan(args):
+    """先验证整份配置，再批量检测；每次创建独立运行目录以保留历史。"""
     started = time.perf_counter()
     config = load_config(args.config)
     if args.workers is not None:
@@ -74,6 +85,7 @@ def _run_scan(args):
     cv2.setNumThreads(1)
 
     def process(item):
+        """单张任务同时负责落盘；输入错误也生成可归档的机器结果和审核入口。"""
         index, (path, metadata) = item
         debug = {} if config["runtime"]["save_debug_masks"] else None
         try:
@@ -89,6 +101,7 @@ def _run_scan(args):
             result, frame = DetectionResult(path.stem, str(path), status="error",
                                              errors=[f"{type(exc).__name__}: {exc}"]), None
         slug = re.sub(r"[^\w.-]+", "_", result.pageId, flags=re.UNICODE).strip(".")[:60] or "page"
+        # 页面名可重复；序号和路径摘要避免本次批量任务写入同一工件目录。
         digest = hashlib.sha256(str(path).encode()).hexdigest()[:8]
         artifact_dir = f"{index+1:04d}-{slug}-{digest}"
         record = write_artifacts(output / artifact_dir, result, frame, debug)
@@ -102,6 +115,7 @@ def _run_scan(args):
     with ThreadPoolExecutor(max_workers=config["runtime"]["concurrency"]) as pool:
         records = list(pool.map(process, enumerate(jobs)))
     durations = sorted(record["durationMs"] for record in records)
+    # 单张耗时由引擎计到算法结束；批量 durationMs 还包含工件写出与调度开销。
     summary = {"schemaVersion": 1, "version": __version__, "runId": run_id,
                "createdAt": now.isoformat(), "policy": "strict" if args.strict else "report_only",
                "counts": dict(Counter(record["status"] for record in records)), "results": records,
@@ -123,6 +137,7 @@ def _run_scan(args):
 
 
 def _review(args):
+    """验证问题 ID 后，仅更新独立审核文件及追加历史，不改变机器判定。"""
     directory = Path(args.result).resolve()
     if directory.is_file():
         directory = directory.parent
@@ -150,6 +165,7 @@ def _review(args):
 
 
 def main(argv=None):
+    """可供测试传入参数列表；常见配置、输入和 OpenCV 错误统一转为退出码 2。"""
     parser = argparse.ArgumentParser(prog="skinscan", description="Full-resolution PNG dark-theme checks (CPU, no OCR)")
     parser.add_argument("--version", action="version", version=__version__)
     commands = parser.add_subparsers(dest="command", required=True)

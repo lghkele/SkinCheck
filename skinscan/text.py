@@ -1,4 +1,8 @@
-"""Multi-scale classical stroke detection; never recognizes character content."""
+"""文字链路：双极性候选 → 结构验证 → 局部笔画配对 → 异常组件重新分组。
+
+不识别字义，连通组件也不保证是完整单字。可靠配对才输出低对比度；测量失败
+只对较强 UI 文字结构保留未知项，不能用旧整行估色回退制造精确对比度。
+"""
 from collections import deque
 
 import cv2
@@ -12,6 +16,8 @@ from .textshape import component_shape, line_structure
 
 def _group_components(components, config):
     """Join neighboring, similarly sized glyphs without requiring a minimum glyph count."""
+    # component = (x, y, width, height, label_id)，label_id 对应当前极性的全图 CCL 标签。
+    # 高度、垂直重叠和水平间距构建邻接，允许传递合组；合组不代表共享同一颜色。
     parent = list(range(len(components)))
 
     def root(i):
@@ -43,6 +49,11 @@ def _group_components(components, config):
 
 
 def _analyze_line(frame, labels, response, group, polarity, config, pictures=None, diagnostics=None, shapes=None):
+    """逐组件测量后仅合并异常部分；diagnostics 原地累计，返回该组的问题列表。
+
+    measured 保存足够低对比度配对的组件；unresolved 只保留范围内的采样不足项。
+    后者不是低对比度证据；图片内部和孤立碎片可能只计数，不产生问题项。
+    """
     c = config["text"]
     sampling = c["stroke_sampling"]
     measured = {}
@@ -53,6 +64,7 @@ def _analyze_line(frame, labels, response, group, polarity, config, pictures=Non
         diagnostics[key] = diagnostics.get(key, 0) + 1
     for component in group:
         x, y, w, h, label = component
+        # 按组件真实像素判断图片占用，避免外接框碰到封面就改变整个候选。
         on_picture = (pictures is not None and
                       float(pictures.interior[y:y+h, x:x+w][labels[y:y+h, x:x+w] == label].mean()) >= 0.5)
         required = max(sampling["min_pairs"], c["candidate_validation"]["picture_min_pairs"]) if on_picture else sampling["min_pairs"]
@@ -80,6 +92,7 @@ def _analyze_line(frame, labels, response, group, polarity, config, pictures=Non
                 record("pictureIrregularPairCount")
                 continue
         eligible = [p for p in result.pairs if in_detection_scope(p.foreground, p.background, polarity, c)]
+        # 支持率分母是符合检测范围的可靠配对，不能把尝试次数或范围外配对混入。
         low = [p for p in eligible if p.contrast < c["warning_contrast"]]
         if (len(low) >= required and
                 len(low)/max(1, len(eligible)) >= sampling["min_low_contrast_fraction"]):
@@ -99,6 +112,7 @@ def _analyze_line(frame, labels, response, group, polarity, config, pictures=Non
         low = [p for _, _, _, values in records for p in values]
         ratios = np.asarray([p.contrast for p in low])
         representative = min(low, key=lambda p: abs(p.contrast-float(np.median(ratios))))
+        # 摘要使用低对比度样本的代表对，不是整行均值或最差值；详情保留分位数。
         ratio = representative.contrast
         heights = np.array([v[3] for v in affected], np.float32)
         height_consistency = max(0, 1-float(heights.std()/max(heights.mean(), 1)))
@@ -158,6 +172,11 @@ def _analyze_line(frame, labels, response, group, polarity, config, pictures=Non
 
 
 def detect_text(frame, config, debug=None, pictures=None):
+    """返回 (issues, diagnostics)，不从文字有效区挖掉图片，也不依赖背景告警。
+
+    debug 可收集初始与验证后原尺寸掩码；partial 仅表示候选数量截断等执行完整性，
+    ok 不代表所有可见字均测量成功，未测碎片数量另存 candidateValidation。
+    """
     c = config["text"]
     # Local residual noise controls the response floor, preserving a 14-level dark stroke.
     residual = cv2.absdiff(frame.gray, cv2.medianBlur(frame.gray, 3)).astype(np.float32)
@@ -171,6 +190,7 @@ def detect_text(frame, config, debug=None, pictures=None):
     count_all = 0
     diagnostics = {}
     responses = {}
+    # 先求出两种极性，结构验证才可同时看到候选及其周围的相反明暗响应。
     for polarity, operation in (("blackhat_dark", cv2.MORPH_BLACKHAT), ("tophat_light", cv2.MORPH_TOPHAT)):
         response = np.zeros_like(frame.gray)
         for scale in c["morphology_scales"]:
@@ -217,6 +237,6 @@ def detect_text(frame, config, debug=None, pictures=None):
                     "candidateLimitReached": truncated, "detectionMode": c["detection_mode"],
                     "measurementMethod": "paired_strokes",
                     "pairedStrokeIssueCount": sum(i.metrics.get("measurementMethod") == "paired_strokes" for i in issues),
-                    "fallbackIssueCount": 0,
+                    "fallbackIssueCount": 0,  # 兼容旧 JSON 字段，整行估色告警路径已删除。
                     "unmeasuredTextIssueCount": sum(i.type == "UNREADABLE_TEXT_CANDIDATE" for i in issues),
                     "candidateValidation": diagnostics}

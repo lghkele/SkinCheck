@@ -13,6 +13,7 @@ from .image import contrast_ratio, luminance
 
 
 def in_detection_scope(foreground, background, polarity, config):
+    """先检查笔画明暗方向，再按模式检查局部背景；不使用页面中位数替代背景。"""
     fg, bg = float(luminance(foreground)), float(luminance(background))
     delta = config["min_foreground_delta"]
     if polarity == "blackhat_dark":
@@ -26,6 +27,11 @@ def in_detection_scope(foreground, background, polarity, config):
 
 @dataclass
 class StrokePair:
+    """同一截面实测核心与双侧背景，位置／边缘均为原图 [x, y] 坐标。
+
+    width 是射线首次离开候选组件的像素距离，不是恢复出的设计稿字体宽度。
+    contrast 来自这一对颜色，不允许与别处的背景重新拼成摘要对。
+    """
     foreground: np.ndarray
     background: np.ndarray
     position: List[int]
@@ -47,6 +53,10 @@ class StrokePair:
 
 @dataclass
 class SamplingResult:
+    """一次方向采样的有效配对与拒绝计数；拒绝计数不覆盖所有失败原因，不能当作概率分布。
+
+    几何、核心、背景按阶段筛选；另有极性失败可能直接跳过，不计入这三个字段。
+    """
     pairs: List[StrokePair] = field(default_factory=list)
     attempted: int = 0
     rejected_geometry: int = 0
@@ -55,7 +65,11 @@ class SamplingResult:
 
 
 def sample_component(frame, labels, component, polarity, text_config, direction_offset=0.0):
-    """Find boundary pairs and sample their shared core and two nearby backgrounds."""
+    """借鉴 SWT 的相反边缘思想，返回单组件某方向偏移下的 SamplingResult。
+
+    component 为 (x,y,w,h,label)，labels 为当前极性全图标签。direction_offset
+    单位为度；每次独立测量，不放宽稳定性条件，也不合并其他方向的重复配对。
+    """
     x, y, w, h, label = component
     c = text_config["stroke_sampling"]
     max_width = max(3, int(np.ceil(h * c["max_width_height_ratio"])))
@@ -93,6 +107,7 @@ def sample_component(frame, labels, component, polarity, text_config, direction_
     origins = np.stack((bx, by), axis=1)
 
     def points(distances):
+        # 向量化数组为 [射线, 距离, xy]；clip 只保护索引，inside 仍必须参与有效性检查。
         positions = np.rint(origins[:, None, :] + direction[:, None, :] * distances[..., None]).astype(int)
         px, py = positions[..., 0], positions[..., 1]
         inside = (px >= 0) & (px < rgb.shape[1]) & (py >= 0) & (py < rgb.shape[0])
@@ -104,6 +119,7 @@ def sample_component(frame, labels, component, polarity, text_config, direction_
     exited = ~same_glyph
     has_exit = exited.any(axis=1)
     exit_index = np.argmax(exited, axis=1)
+    # 全 False 时 argmax 也会返回 0；后续必须联合 has_exit，不能把它误当一像素笔画。
     widths = exit_index.astype(float) + 1
     # Allow a one-pixel AA offset when testing the opposite edge's gradient.
     edge_distances = widths[:, None] + np.array([-1, 0, 1])[None, :]
@@ -138,6 +154,7 @@ def sample_component(frame, labels, component, polarity, text_config, direction_
     lpx, lpy, li = points(-gap[:, None]-offsets)
     rpx, rpy, ri = points(widths[:, None]+gap[:, None]+offsets)
     left_valid = li & valid[lpy, lpx] & (local_labels[lpy, lpx] == 0)
+    # 标签排除只覆盖当前极性的候选；相反极性邻近图案主要由梯度／颜色稳定性拦截。
     right_valid = ri & valid[rpy, rpx] & (local_labels[rpy, rpx] == 0)
     left_valid &= magnitude[lpy, lpx] <= c["background_max_gradient"]
     right_valid &= magnitude[rpy, rpx] <= c["background_max_gradient"]

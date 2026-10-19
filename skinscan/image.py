@@ -1,3 +1,8 @@
+"""原分辨率像素与共享数学工具；项目内图像使用 RGB，OpenCV 编解码处转换。
+
+坐标框统一为 [left, top, right, bottom)，数组访问顺序为 [y, x]。
+Yg 是编码 sRGB 加权筛选值；WCAG 对比度另用线性相对亮度，阈值不能混用。
+"""
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -6,6 +11,7 @@ import numpy as np
 
 
 def odd(value, minimum=3):
+    """将按截图宽度换算的核尺寸取为至少 minimum 的奇数，保持中心对称。"""
     return max(minimum, int(round(value)) | 1)
 
 
@@ -15,6 +21,7 @@ def luminance(rgb):
 
 
 def relative_luminance(rgb):
+    """单个 RGB 三元组经 sRGB 线性化后的 WCAG 相对亮度，不用于背景阈值。"""
     channels = np.asarray(rgb, dtype=np.float64) / 255
     linear = np.where(channels <= 0.04045, channels / 12.92, ((channels + 0.055) / 1.055) ** 2.4)
     return float(linear @ [0.2126, 0.7152, 0.0722])
@@ -27,6 +34,12 @@ def contrast_ratio(first, second):
 
 @dataclass
 class Frame:
+    """同一截图的等尺寸派生数组，检测链路按只读数据使用。
+
+    rgb 为 uint8 RGB，gray 为 uint8 筛选灰度，y 为 float32 [0,1]；gradient
+    是未归一化 Sobel 幅值，可能大于 1。valid 为布尔掩码，排除业务忽略区域。
+    图片内部掩码独立保存，不能直接改动这里的 valid 来跳过文字。
+    """
     rgb: np.ndarray
     y: np.ndarray
     gray: np.ndarray
@@ -47,6 +60,11 @@ class Frame:
 
 
 def load_frame(path, ignored_regions):
+    """严格解码 8 位不透明 PNG，裁剪忽略坐标，不缩放或重建被遮挡颜色。
+
+    文件签名优先于扩展名；透明像素没有唯一最终背景，必须由采集端先合成。
+    全部像素被忽略仍返回 Frame，由引擎将页面标为 ignored，避免空统计。
+    """
     path = Path(path)
     # imdecode supports Unicode file paths on all platforms.
     data = np.fromfile(str(path), dtype=np.uint8)
@@ -83,6 +101,11 @@ def write_png(path, rgb):
 
 
 def ring_samples(frame, bounds, padding, exclusion=1):
+    """取框外环带的有效亮度与 RGB；exclusion 留出边缘保护带以减少混色。
+
+    环带被裁到图像内，可能为空；调用方决定此时使用哪个统计回退值。
+    传入背景专用 Frame 时，图片内部也会从环带样本中排除。
+    """
     x1, y1, x2, y2 = bounds
     left, top = max(0, x1 - padding), max(0, y1 - padding)
     right, bottom = min(frame.width, x2 + padding), min(frame.height, y2 + padding)
@@ -93,6 +116,10 @@ def ring_samples(frame, bounds, padding, exclusion=1):
 
 
 def texture_metrics(frame, bounds, config):
+    """在外接框的有效像素中计算颜色变化与边缘密度，不是语义图片概率。
+
+    统计范围是框内有效像素，不仅是候选连通域；纹理复杂度只能辅助评分。
+    """
     x1, y1, x2, y2 = bounds
     valid = frame.valid[y1:y2, x1:x2]
     pixels = frame.rgb[y1:y2, x1:x2][valid]

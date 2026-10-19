@@ -1,3 +1,7 @@
+"""局部配对与范围门控回归：颜色必须来自同一截面，错误背景不能靠平均蒙混通过。
+
+既通过真实候选流水线验证告警，也用已知标签隔离采样几何，区分定位和测量失败。
+"""
 import cv2
 import numpy as np
 import pytest
@@ -114,6 +118,7 @@ def test_opposing_edges_measure_core_with_antialiasing(tmp_path, bg, fg, polarit
 
 
 def test_unknown_stroke_measurement_cannot_be_confirmed(screenshot):
+    # 故意使最小宽度不可满足：保留强文字结构未知项，不恢复整行估色对比度。
     path, _ = screenshot(background=37, text="Weak dark text", foreground=23)
     config = load_config()
     config["text"]["stroke_sampling"]["opposite_gradient_cosine"] = 1.0

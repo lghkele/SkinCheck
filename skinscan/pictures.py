@@ -2,7 +2,9 @@
 
 SLICO follows Achanta et al., TPAMI 2012 (10.1109/TPAMI.2012.120).
 Palette proposals, texture coverage, layout and confidence are project heuristics.
-Only verified interiors affect background detection; text keeps its original mask.
+可信内部可从背景分析排除；文字保留原 valid，利用图片上下文加强配对要求。
+处理顺序为底色候选 → 纹理／边界／布局证据 → 候选原图 ROI 的 SLICO。
+超像素只提供范围内的分割支持，不负责证明候选在语义上是一幅图片。
 """
 from dataclasses import dataclass, field
 
@@ -15,6 +17,11 @@ from .models import overlap
 
 @dataclass
 class PictureMap:
+    """与原图同尺寸的布尔掩码及可审计候选。
+
+    interior 是采用的内部像素；boundary 和 uncertain 不可自动当成忽略区。
+    regions 的外接框不等于实际内部掩码；diagnostics 记录开关、上限与完整性。
+    """
     interior: np.ndarray
     boundary: np.ndarray
     uncertain: np.ndarray
@@ -23,10 +30,12 @@ class PictureMap:
 
 
 def empty_pictures(frame):
+    """每次分配独立空掩码，用于初始化、禁用与模块故障时的非抑制回退。"""
     return PictureMap(*(np.zeros(frame.gray.shape, bool) for _ in range(3)))
 
 
 def _local_features(frame, c):
+    """原图滑窗统计 E[x²]-E[x]² 与边缘密度；分布证据不能替代图片边界证据。"""
     size = odd(frame.width * c["window_width_ratio"])
     rgb = frame.rgb.astype(np.float32) / 255
     mean = cv2.boxFilter(rgb, -1, (size, size))
@@ -39,6 +48,7 @@ def _local_features(frame, c):
 
 
 def _palette_mask(frame, std, c):
+    """返回 (较暗底色掩码, 全部底色掩码, 原像素代表色)，用于两类候选提案。"""
     # Learn common *flat* colors; a multicolored cover is not a background palette.
     flat = frame.valid & (std <= c["flat_color_std"]) & (frame.gradient <= c["flat_max_gradient"])
     size = c["palette_bin_size"]
@@ -60,6 +70,7 @@ def _palette_mask(frame, std, c):
     # Uniform white cards still fail the later texture/spatial coverage checks.
     dark_ui = any(float(luminance(color)) <= c["palette_background_max"] for color in colors)
     signed_rgb = frame.rgb.astype(np.int16)
+    # uint8 相减会回绕；颜色容差比较必须先提升为有符号类型。
     for color in colors:
         difference = np.max(np.abs(signed_rgb - np.asarray(color, np.int16)), axis=2)
         matching = difference <= c["background_color_tolerance"]
@@ -79,6 +90,7 @@ def _longest_run(values):
 
 
 def _trim_appendage(mask, bounds):
+    """按连续行列占用率裁掉狭窄附着物；调用者与原框比较评分，不强制采用裁剪框。"""
     # A small floating button touching a poster must not expand the poster to its top.
     x1, y1, x2, y2 = bounds
     local = mask[y1:y2, x1:x2] != 0
@@ -93,6 +105,7 @@ def _trim_appendage(mask, bounds):
 
 
 def _boundary_support(frame, bounds, tolerance):
+    """以可测各侧的内外颜色差占比求均值；贴边缺侧不当成零分，但至少需两侧。"""
     x1, y1, x2, y2 = bounds
     rgb = frame.rgb.astype(np.int16, copy=False)
     sides = []
@@ -114,6 +127,11 @@ def _boundary_support(frame, bounds, tolerance):
 
 
 def _measure_candidate(frame, texture, proposal, bounds, c):
+    """先执行硬门限，再返回工程评分证据；None 表示提案不足以保留。
+
+    纹理需分布在多个网格，且主色不能过度占优，减少密集文字白卡被当图片。
+    此处不调用 SLICO，避免给大量弱候选支付分割成本。
+    """
     x1, y1, x2, y2 = bounds
     h, w = y2-y1, x2-x1
     if (w < max(8, frame.width*c["min_width_ratio"]) or h < max(8, frame.width*c["min_height_ratio"]) or
@@ -144,6 +162,7 @@ def _measure_candidate(frame, texture, proposal, bounds, c):
 
 
 def _layout_support(regions):
+    """原地加入重复尺寸／排列的有限加分；不会绕过填充率和边界硬门限。"""
     for region in regions:
         a = region["bounds"]
         w, h = a[2]-a[0], a[3]-a[1]
@@ -162,6 +181,11 @@ def _layout_support(regions):
 
 
 def _slico_interior(frame, region, c, debug):
+    """细分候选及外围原图 ROI，返回 (ROI 坐标, ROI 内部掩码, ROI 边带)。
+
+    掩码是 ROI 局部数组，调用者负责贴回全图；region 原地记录分割证据。
+    支持率按超像素落在候选有效区的占比筛选，不能据此反推封面语义。
+    """
     if not hasattr(cv2, "ximgproc") or not hasattr(cv2.ximgproc, "createSuperpixelSLIC"):
         raise RuntimeError("Picture localization requires opencv-contrib-python-headless (SLICO)")
     x1, y1, x2, y2 = region["bounds"]
@@ -171,6 +195,7 @@ def _slico_interior(frame, region, c, debug):
     rgb = frame.rgb[top:bottom, left:right].copy()
     valid = frame.valid[top:bottom, left:right]
     if not valid.all():
+        # 只在分割副本中填充忽略像素以降低其干扰；最终掩码仍必须与 valid 相交。
         rgb[~valid] = np.median(rgb[valid], axis=0)
     lab = cv2.cvtColor(rgb, cv2.COLOR_RGB2LAB)
     slic = cv2.ximgproc.createSuperpixelSLIC(lab, algorithm=cv2.ximgproc.SLICO, region_size=size)
@@ -199,6 +224,11 @@ def _slico_interior(frame, region, c, debug):
 
 
 def locate_pictures(frame, config, debug=None):
+    """返回保守 PictureMap，不修改 Frame；缺少 contrib/SLICO 时向引擎抛错。
+
+    未完成候选分析记录 partial；可信候选分割覆盖不足则降为 uncertain。
+    所有提案／分割均在原始像素上进行，局部 ROI 裁取不等于图像缩放。
+    """
     c = config["pictures"]
     output = empty_pictures(frame)
     output.diagnostics = {"status": "ok", "enabled": c["enabled"], "candidateCount": 0,
@@ -229,6 +259,7 @@ def locate_pictures(frame, config, debug=None):
                     stats[i, 4] >= frame.active_area*c["min_area_ratio"]]
         eligible.sort(key=lambda i: int(stats[i, 4]), reverse=True)
         remaining = max(0, c["max_candidates"]-output.diagnostics["candidateCount"])
+        # 两种底色模型共用候选预算；candidateCount 包含超限未分析项，便于审计覆盖。
         output.diagnostics["candidateCount"] += len(eligible)
         if len(eligible) > remaining:
             output.diagnostics.update(status="partial", candidateLimitReached=True)

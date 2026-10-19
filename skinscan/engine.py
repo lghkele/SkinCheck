@@ -1,3 +1,8 @@
+"""单张截图的编排入口；检测器负责产出证据，本模块负责合并与状态判定。
+
+阅读顺序：analyze_image → 图片定位 → 两条独立检测链路 → 合并／白名单／嵌套
+→ _classify。页面状态与人工复核状态独立，执行错误另存 errors。
+"""
 import hashlib
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -14,6 +19,11 @@ from .text import detect_text
 
 
 def _merge_issues(issues, config):
+    """同类型且空间／测量相容的候选去重，原地保留最强候选和替代证据。
+
+    多个亮度阈值可能命中同一像素，不能将重复次数当作独立置信度支持。
+    若次要候选风险更高，单独保存 severityEvidence，避免丢掉升级依据。
+    """
     def duplicate(first, second):
         iou, contained = overlap(first.bounds, second.bounds)
         a = (first.bounds[2]-first.bounds[0]) * (first.bounds[3]-first.bounds[1])
@@ -46,6 +56,7 @@ def _merge_issues(issues, config):
 
 
 def _nest_issues(issues, config):
+    """原地建立背景与内部问题的层级；嵌套只改变组织，不抑制子问题。"""
     backgrounds = [i for i in issues if i.type in {"BRIGHT_BACKGROUND", "PAGE_NOT_DARK"}]
     nested = []
     # Smallest containing background wins, so text belongs to a card within a page.
@@ -63,6 +74,7 @@ def _nest_issues(issues, config):
 
 
 def _apply_color_whitelist(issues, config):
+    """允许色仅降低背景类风险，记录命中并要求复核；不会删除文字问题。"""
     colors = [np.array([int(color[n:n+2], 16) for n in (1, 3, 5)])
               for color in config["global"]["allowed_colors"]]
     filters = config["filter"]
@@ -84,6 +96,11 @@ def _apply_color_whitelist(issues, config):
 
 
 def _classify(result, config):
+    """遍历所有层级判定页面状态；确定风险优先于分析不完整。
+
+    failed 页面仍可同时 needs_review；CLI 会另外检查 errors，执行故障
+    即使伴随确定风险也返回错误码，不能仅凭页面 status 判断运行是否成功。
+    """
     issues = [issue for issue in walk_issues(result.issues) if not issue.suppressed]
     hard = [issue for issue in issues if issue.severity in config["fail_severities"] and
             issue.confidence >= config["high_confidence"] and not issue.requiresReview]
@@ -101,6 +118,12 @@ def _classify(result, config):
 
 
 def analyze_image(path, config=None, metadata=None, debug=None):
+    """返回 (DetectionResult, Frame 或 None)，不写报告、不修改输入文件。
+
+    config 为已加载的完整配置；metadata 优先由调用者解析，库入口不自动读 sidecar。
+    debug 为可选输出字典，各链路使用自己的键前缀写原尺寸中间图。
+    输入／预处理错误使整页 error；单模块错误被隔离，其他链路仍执行。
+    """
     started = time.perf_counter()
     metadata = dict(metadata or {})
     page_id = str(metadata.get("pageId") or Path(path).stem)
@@ -135,6 +158,7 @@ def analyze_image(path, config=None, metadata=None, debug=None):
                 result.modules["pictures"] = {"status": "error", "error": f"{type(exc).__name__}: {exc}"}
                 result.errors.append(f"pictures: {type(exc).__name__}: {exc}")
             # Independent chains share only read-only image arrays. One failed future cannot skip the other.
+            # 图片信息已准备好：背景排除可信内部，文字只加强证据门限，二者不依赖彼此的告警。
             with ThreadPoolExecutor(max_workers=2) as pool:
                 jobs = {"background": pool.submit(detect_background, frame, effective, debug, pictures),
                         "text": pool.submit(detect_text, frame, effective, debug, pictures)}
@@ -152,6 +176,7 @@ def analyze_image(path, config=None, metadata=None, debug=None):
             _apply_color_whitelist(candidates, effective)
             result.issues = _nest_issues(candidates, effective["scoring"])
             for issue in walk_issues(result.issues):
+                # ID 用于关联人工复核；不含运行时间，但框或类型改变后 ID 也会改变。
                 identity = f"{page_id}:{issue.type}:{issue.bounds}"
                 issue.id = hashlib.sha256(identity.encode()).hexdigest()[:16]
             _classify(result, effective["scoring"])

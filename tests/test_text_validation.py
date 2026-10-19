@@ -1,4 +1,7 @@
-"""Distinguish photographic/UI shapes from measured readable or weak text."""
+"""候选验证的两面约束：拒绝字缝／圆角／纹理，同时保留真实微弱笔画和短字。
+
+图片内弱标签测试只验证文字上下文约束；图片定位本身由 test_pictures 覆盖。
+"""
 import cv2
 import numpy as np
 import pytest
@@ -12,6 +15,7 @@ from skinscan.text import detect_text
 
 
 def run(tmp_path, image, picture=False, config=None):
+    """picture=True 注入全图内部掩码，隔离文字规则，避免图片定位影响用例归因。"""
     path = tmp_path / 'validation.png'
     write_png(path, image)
     frame = load_frame(path, [])

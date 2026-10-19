@@ -1,4 +1,8 @@
-"""Independent absolute, local-contrast and unmodified narrow-edge branches."""
+"""背景独立检测：绝对／相对／局部反差亮块、原始拓扑窄边、剩余 UI 整页规则。
+
+本模块使用编码亮度 Yg，不使用 WCAG 文字对比度。图片可信内部只通过独立
+Frame.valid 副本排除，原图和文字链路的有效像素保持不变。
+"""
 from dataclasses import replace
 
 import cv2
@@ -9,6 +13,11 @@ from .models import Issue
 
 
 def detect_background(frame, config, debug=None, pictures=None):
+    """返回 (issues, statistics, diagnostics)；调用前应保证 frame.active_area > 0。
+
+    原图亮暗比例保留作审计，整页规则使用扣除可信图片后的 UI 分母。
+    旧 largest*RegionRatio 则来自过滤后的候选、仍除以原有效面积，需与 ui* 区分。
+    """
     c, filters = config["background"], config["filter"]
     values = frame.y[frame.valid]
     original_median = float(np.median(values))
@@ -20,6 +29,7 @@ def detect_background(frame, config, debug=None, pictures=None):
     ui_fraction = ui_area / frame.active_area
     median = float(np.median(ui_values)) if ui_area else original_median
     ui_frame = replace(frame, valid=background_valid)
+    # 只替换掩码，共享其他只读数组；外围取样和纹理统计必须采用同一 UI 有效区。
     absolute = c["absolute_bright_threshold"]
     statistics = {
         "luminanceSpace": "gamma_encoded_weighted_sRGB_0_1",
@@ -66,6 +76,7 @@ def detect_background(frame, config, debug=None, pictures=None):
                 valid = frame.valid if edge_branch else background_valid
                 component = (labels[y:y+h, x:x+w] == idx) & valid[y:y+h, x:x+w]
                 original = component & ((edge_raw if edge_branch else raw)[y:y+h, x:x+w] != 0)
+                # 闭运算仅负责连接形状；测量颜色和面积仍取原阈值像素，避免填洞抬高证据。
                 area = int(original.sum())
                 if not area:
                     continue
@@ -94,6 +105,7 @@ def detect_background(frame, config, debug=None, pictures=None):
                     if h > 2 * thickness and w > 2 * thickness:
                         border[thickness:-thickness, thickness:-thickness] = False
                     border_fraction = float(np.mean(border[original]))
+                    # 细长线，或大跨度低填充且集中在边带的环／三边结构，都可进入窄边复核。
                     is_edge = (min(w, h) <= thickness or
                                (rectangularity < c["edge_max_rectangularity"] and border_fraction >= c["edge_min_border_fraction"]))
                     if not (is_edge and delta >= c["min_surrounding_delta"]):
@@ -146,6 +158,7 @@ def detect_background(frame, config, debug=None, pictures=None):
                             "疑似页面主体未进入暗夜模式", {
                                 **statistics, "backgroundRgb": np.median(frame.rgb[frame.valid], axis=0).astype(int).tolist()}))
     if pictures is not None:
+        # 不确定图片和可信图片边带不删除；重合较多的候选改走复核，保留观察证据。
         for issue in issues:
             if issue.type == "PAGE_NOT_DARK":
                 bright = (frame.y > absolute) & background_valid
@@ -166,5 +179,6 @@ def detect_background(frame, config, debug=None, pictures=None):
                 issue.requiresReview = True
                 issue.confidence = min(issue.confidence, 0.60)
     insufficient_ui = ui_fraction < config["pictures"]["min_ui_area_ratio"]
+    # 没有足够 UI 或候选被截断时，空告警列表也不代表完整分析通过。
     return issues, statistics, {"status": "partial" if truncated or insufficient_ui else "ok",
                                 "candidateLimitReached": truncated, "insufficientUiArea": insufficient_ui}

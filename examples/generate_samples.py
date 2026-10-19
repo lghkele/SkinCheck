@@ -1,4 +1,8 @@
-"""Create lossless 1080x2400 synthetic acceptance inputs (no screenshot resizing)."""
+"""直接生成无损 1080×2400 合成验收输入与 manifest，不执行截图缩放。
+
+样本用于人工查看机制与回归分流，不代表真实产品的误报率／召回率。生成器会
+重写输出目录下同名示例文件；检测报告另由 scan 保存至独立历史目录。
+"""
 import argparse
 import json
 from pathlib import Path
@@ -27,6 +31,7 @@ def main():
     samples["normal_dark"] = normal
 
     white_card = page()
+    # 同一张图检验背景与文字范围的差别：默认专项只报白卡，全量模式可再报灰字。
     white_card[400:1100, 70:1010] = 245
     text(white_card, "Low contrast card", 650, 181)
     samples["white_card"] = white_card
@@ -63,6 +68,7 @@ def main():
     samples["whole_light_page"] = light_page
 
     mixed = page(245)
+    # GOOD 与 weak 相邻但颜色不同；必须只定位弱字，不能让整行代表色掩盖问题。
     text(mixed, "GOOD", 800, 30)
     good_width = cv2.getTextSize("GOOD", cv2.FONT_HERSHEY_SIMPLEX, 1.8, 4)[0][0]
     cv2.putText(mixed, "weak", (90+good_width+15, 800), cv2.FONT_HERSHEY_SIMPLEX, 1.8, (181,)*3, 4, cv2.LINE_AA)
@@ -75,6 +81,7 @@ def main():
 
     image_content = page()
     rng = np.random.default_rng(42)
+    # 固定种子保证重复生成一致；这是纹理负样本，不是经过标注的业务图片集。
     image_content[400:1400, 70:1010] = rng.integers(0, 256, (1000, 940, 3), dtype=np.uint8)
     samples["complex_image"] = image_content
 
@@ -90,6 +97,7 @@ def main():
     samples["cover_bright_sky"] = bright_cover
 
     covers_and_card = page()
+    # 同页同时放可过滤的封面和必须保留的白卡，避免用“少报告”冒充正确过滤。
     for y in (180, 630, 1080):
         covers_and_card[y:y+350, 90:330] = cover(240, 350)
         cv2.putText(covers_and_card, "Book title", (390, y+100),
@@ -103,6 +111,7 @@ def main():
     samples["cover_and_weak_text"] = cover_and_text
 
     manifest = []
+    # imagePath 相对 manifest 所在目录，输出目录可整体移动后再扫描。
     for name, image in samples.items():
         ok, encoded = cv2.imencode(".png", cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
         if not ok:

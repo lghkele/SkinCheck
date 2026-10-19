@@ -1,3 +1,4 @@
+"""保存机器结果及原尺寸可视化；报告展示与检测／人工审核判定相互分离。"""
 import html
 import json
 import shutil
@@ -16,6 +17,10 @@ COLORS = {"critical": (235, 45, 55), "high": (255, 140, 30),
 
 
 def write_json(path, value):
+    """同目录临时文件写完后替换目标，避免正常替换前暴露半份 JSON。
+
+    禁止 NaN／Infinity 混入工件；这里不提供多写入者锁或断电持久性保证。
+    """
     path = Path(path)
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2, allow_nan=False) + "\n", encoding="utf-8")
@@ -23,6 +28,7 @@ def write_json(path, value):
 
 
 def annotate(frame, issues, high_confidence=0.8):
+    """只在 RGB 副本上绘制；需复核项统一蓝色，风险级别仍完整保留在 JSON。"""
     image = frame.rgb.copy()
     for index, issue in enumerate(walk_issues(issues), 1):
         low = issue.requiresReview or issue.confidence < high_confidence
@@ -43,6 +49,7 @@ def annotate(frame, issues, high_confidence=0.8):
 
 
 def annotate_pictures(frame, regions):
+    """绿／橙框展示采用／待复核候选；框不是实际像素掩码，后者见调试工件。"""
     image = frame.rgb.copy()
     for index, region in enumerate(regions, 1):
         x1, y1, x2, y2 = region["bounds"]
@@ -56,6 +63,10 @@ def annotate_pictures(frame, regions):
 
 
 def write_artifacts(directory, result, frame, debug=None):
+    """写单图工件并返回序列化记录；读取失败、frame=None 时仍保存结果 JSON。
+
+    保留原 PNG 字节；派生标注和调试图保持原尺寸，审核文件由 CLI 单独维护。
+    """
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     if frame is not None:
@@ -82,9 +93,11 @@ def write_artifacts(directory, result, frame, debug=None):
 
 
 def write_html(directory, summary):
+    """生成无需服务的静态报告；截图只通过 CSS 适配显示，不改变处理分辨率。"""
     sections = []
     for record in summary["results"]:
         key = record["artifactDirectory"]
+        # 路径按 URL 编码，页面名／消息按 HTML 转义；输入元数据不能成为可执行标记。
         esc = html.escape
         directory_url = quote(key)
         pictures = ""
